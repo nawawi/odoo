@@ -440,7 +440,7 @@ QUnit.module('relational_fields', {
     });
 
     QUnit.test('onchanges on many2ones trigger when editing record in form view', function (assert) {
-        assert.expect(9);
+        assert.expect(10);
 
         this.data.partner.onchanges.user_id = function () {};
         this.data.user.fields.other_field = {string: "Other Field", type: "char"};
@@ -479,12 +479,12 @@ QUnit.module('relational_fields', {
 
         // save the modal and make sure an onchange is triggered
         $('.modal .modal-footer .btn-primary').first().click();
-        assert.verifySteps(['read', 'get_formview_id', 'read', 'write', 'onchange', 'read']);
+        assert.verifySteps(['read', 'get_formview_id', 'load_views', 'read', 'write', 'onchange', 'read']);
 
         // save the main record, and check that no extra rpcs are done (record
         // is not dirty, only a related record was modified)
         form.$buttons.find('.o_form_button_save').click();
-        assert.verifySteps(['read', 'get_formview_id', 'read', 'write', 'onchange', 'read']);
+        assert.verifySteps(['read', 'get_formview_id', 'load_views', 'read', 'write', 'onchange', 'read']);
         form.destroy();
     });
 
@@ -2195,7 +2195,7 @@ QUnit.module('relational_fields', {
             },
             res_id: 1,
             mockRPC: function (route, args) {
-                if (args.model === 'turtle') {
+                if (args.model === 'turtle' && args.method === 'read') {
                     assert.deepEqual(args.args[0], [1,2],
                         'should only load first 2 records');
                 }
@@ -4065,16 +4065,16 @@ QUnit.module('relational_fields', {
         assert.expect(5);
 
         var delta = 0;
-        var oldInit = AbstractField.prototype.init;
-        var oldDestroy = AbstractField.prototype.destroy;
-        AbstractField.prototype.init = function () {
-            delta++;
-            oldInit.apply(this, arguments);
-        };
-        AbstractField.prototype.destroy = function () {
-            delta--;
-            oldDestroy.apply(this, arguments);
-        };
+        testUtils.patch(AbstractField, {
+            init: function () {
+                delta++;
+                this._super.apply(this, arguments);
+            },
+            destroy: function () {
+                delta--;
+                this._super.apply(this, arguments);
+            },
+        });
 
         var deactiveOnchange = true;
 
@@ -4161,8 +4161,7 @@ QUnit.module('relational_fields', {
             "should correctly refresh the records after save");
 
         form.destroy();
-        AbstractField.prototype.init = oldInit;
-        AbstractField.prototype.destroy = oldDestroy;
+        testUtils.unpatch(AbstractField);
     });
 
     QUnit.test('one2many editable list with onchange keeps the order', function (assert) {
@@ -6032,7 +6031,7 @@ QUnit.module('relational_fields', {
         // should omit require fields that aren't in the view as they (obviously)
         // have no value, when checking the validity of required fields
         // shouldn't consider numerical fields with value 0 as unset
-        assert.expect(11);
+        assert.expect(12);
 
         this.data.turtle.fields.turtle_foo.required = true;
         this.data.turtle.fields.turtle_qux.required = true; // required field not in the view
@@ -6081,13 +6080,13 @@ QUnit.module('relational_fields', {
         form.$('.o_field_x2many_list_row_add a').click();
         assert.strictEqual(form.$('.o_field_widget[name="int_field"]').val(), "0",
             "int_field should still be 0 (no onchange should have been done yet)");
-        assert.verifySteps(['read', 'default_get'], "no onchange should have been applied");
+        assert.verifySteps(['load_views', 'read', 'default_get'], "no onchange should have been applied");
 
         // fill turtle_foo field
         form.$('.o_field_widget[name="turtle_foo"]').val("some text").trigger('input');
         assert.strictEqual(form.$('.o_field_widget[name="int_field"]').val(), "0",
             "int_field should still be 0 (no onchange should have been done yet)");
-        assert.verifySteps(['read', 'default_get'], "no onchange should have been applied");
+        assert.verifySteps(['load_views', 'read', 'default_get'], "no onchange should have been applied");
 
         // fill partner_ids field with a tag (all required fields will then be set)
         var $m2mInput = form.$('.o_field_widget[name=partner_ids] input');
@@ -7327,7 +7326,9 @@ QUnit.module('relational_fields', {
             },
             res_id: 1,
             mockRPC: function (route, args) {
-                assert.step(_.last(route.split('/')));
+                if (args.method !== 'load_views') {
+                    assert.step(_.last(route.split('/')));
+                }
                 if (args.method === 'write' && args.model === 'partner') {
                     assert.deepEqual(args.args[1].timmy, [
                         [6, false, [12, 15]],
@@ -7425,7 +7426,9 @@ QUnit.module('relational_fields', {
                 'partner_type,false,search': '<search><field name="display_name"/></search>',
             },
             mockRPC: function (route, args) {
-                assert.step(_.last(route.split('/')));
+                if (args.method !== 'load_views') {
+                    assert.step(_.last(route.split('/')));
+                }
                 if (args.method === 'write') {
                     assert.deepEqual(args.args[1].timmy, [
                         [6, false, [12, 15]],
@@ -7731,7 +7734,9 @@ QUnit.module('relational_fields', {
                     '</search>',
             },
             mockRPC: function (route, args) {
-                assert.step(_.last(route.split('/')) + ' on ' + args.model);
+                if (args.method !== 'load_views') {
+                    assert.step(_.last(route.split('/')) + ' on ' + args.model);
+                }
                 if (args.model === 'turtle') {
                     assert.step(args.args[0]); // the read ids
                 }
@@ -7816,7 +7821,7 @@ QUnit.module('relational_fields', {
     });
 
     QUnit.test('many2many list with onchange and edition of a record', function (assert) {
-        assert.expect(7);
+        assert.expect(8);
 
         this.data.partner.fields.turtles.type = "many2many";
         this.data.partner.onchanges.turtles = function () {};
@@ -7853,6 +7858,7 @@ QUnit.module('relational_fields', {
         assert.verifySteps([
             'read', // read initial record (on partner)
             'read', // read many2many turtles
+            'load_views', // load arch of turtles form view
             'read', // read missing field when opening record in modal form view
             'write', // when saving the modal
             'onchange', // onchange should be triggered on partner
@@ -8509,7 +8515,7 @@ QUnit.module('relational_fields', {
     });
 
     QUnit.test('fieldmany2many tags with color: rendering and edition', function (assert) {
-        assert.expect(20);
+        assert.expect(28);
 
         this.data.partner.records[0].timmy = [12, 14];
         this.data.partner_type.records.push({id: 13, display_name: "red", color: 8});
@@ -8577,6 +8583,31 @@ QUnit.module('relational_fields', {
 
         // save the record (should do the write RPC with the correct commands)
         form.$buttons.find('.o_form_button_save').click();
+
+        // checkbox 'Hide in Kanban'
+        $input = form.$('.o_field_many2manytags span[data-id=13]'); // selects 'red' tag
+        $input.click(); // opens the colorpicker dropdown
+        assert.ok(form.$('.o_field_many2manytags span[data-id=13] .o_colorpicker .o_checkbox'), "should have a checkbox in the colorpicker dropdown menu");
+        
+        $input.click();
+        var $checkBox = form.$('.o_field_many2manytags span[data-id=13] .o_colorpicker .o_checkbox input');
+        assert.notOk($checkBox.is(':checked'), "should have unticked checkbox in colorpicker dropdown menu");
+
+        $checkBox.mousedown();
+        $input = form.$('.o_field_many2manytags span[data-id=13]'); // refresh
+        assert.equal($input.data('color'), "0", "should become transparent when toggling on checkbox");
+
+        $input.click();
+        $checkBox = form.$('.o_field_many2manytags span[data-id=13] .o_colorpicker .o_checkbox input'); // refresh
+        assert.ok($checkBox.is(':checked'), "should have a ticked checkbox in colorpicker dropdown menu after mousedown");
+
+        $checkBox.mousedown();
+        $input = form.$('.o_field_many2manytags span[data-id=13]'); // refresh
+        assert.equal($input.data('color'), "8", "should revert to old color when toggling off checkbox");
+
+        $input.click();
+        $checkBox = form.$('.o_field_many2manytags span[data-id=13] .o_colorpicker .o_checkbox input'); // refresh
+        assert.notOk($checkBox.is(':checked'), "should have an unticked checkbox in colorpicker dropdown menu after 2nd click");
 
         // TODO: it would be nice to test the behaviors of the autocomplete dropdown
         // (like refining the research, creating new tags...), but ui-autocomplete

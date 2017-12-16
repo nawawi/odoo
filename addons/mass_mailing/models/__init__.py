@@ -8,5 +8,8 @@ from . import mail_thread
 from . import res_config_settings
 from . import mass_mailing_report
 from . import link_tracker
+<<<<<<< HEAD
 from . import res_company
 from . import ir_model_fields
+=======
+>>>>>>> upstream/master
